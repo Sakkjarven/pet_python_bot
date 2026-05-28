@@ -1,0 +1,9 @@
+# Secrets
+.env
+# Trash
+__pycache__/
+*.pyc
+.venv/
+venv/
+# Backups
+*.zip
