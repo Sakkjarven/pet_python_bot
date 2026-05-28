@@ -46,7 +46,33 @@ def start(message):
 def take_screenshot(message):
     logger.info(f"Command /scr from {message.chat.id}")
     bot.send_message(message.chat.id, "Taking screenshot")
-
+    win_temp_path = "C:\\Windows\\Temp\\screenshot.png"
+    wsl_img_path = "/mnt/c/Windows/Temp/screenshot.png"
+    ps = (
+            "[Reflection.Assembly]::LoadWithPartialName('System.Drawing') | Out-Null; "
+            "[Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; "
+            "$bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds; "
+            "$bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height; "
+            "$graphics = [System.Drawing.Graphics]::FromImage($bmp); "
+            "$graphics.CopyFromScreen($bounds.X, $bounds.Y, 0, 0, $bounds.Size); "
+            f"$bmp.Save('{win_temp_path}', [System.Drawing.Imaging.ImageFormat]::Png); "
+            "$graphics.Dispose(); $bmp.Dispose();"
+    )
+    try:
+        if os.path.exists(wsl_img_path):
+            os.remove(wsl_img_path)
+        subprocess.run(["powershell.exe", "-Command", ps], check=True)
+        if os.path.exists(wsl_img_path):
+            with open(wsl_img_path, 'rb') as img:
+                bot.send_photo(message.chat.id, img, caption="Your screen")
+            os.remove(wsl_img_path)
+            logger.info("Screen sended")
+        else:
+            raise FileNotFoundError("Win not create a screen")
+    except Exception as e:
+        logger.error(f"Error with screen-creating")
+        bot.send_message(message.chat.id, f"Cannot make a screen")
+        
 @bot.message_handler(commands=['say'])
 @check_visitor
 def speak(message):
@@ -65,21 +91,33 @@ def speak(message):
 def speak(message):
     logger.info(f"Command /backup from {message.chat.id}")
     bot.send_message(message.chat.id, "Start building")
-    zip_name = "linux_backup.zip"
-    files_to_back = ["smart_sorter.py","bot_remote.py",".zshrc"]
+    zip_name = "wsl_home_backup.zip"
+    home_dir = os.path.expanduser("~")
+    
+    ignored_dirs = {'.venv','venv','.git','.cache'}
 
     try:
-        with zipfile.ZipFile(zip_name, 'w') as zipf:
-            for file in files_to_back:
-                full_path = os.path.expanduser(f"~/{file}")
-                if os.path.exists(full_path):
-                    zipf.write(full_path, arcname=file)
-                    logger.info(f"file zipped")
-                else:
-                    logger.warning(f"file not foundd")
+        with zipfile.ZipFile(zip_name, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for root,dirs, files in os.walk(home_dir):
+                dirs[:] = [d for d in dirs if d not in ignored_dirs]
+
+                for file in files:
+                    if file == zip_name:
+                        continue
+                    if os.path.islink(os.path.join(root, file)) or not os.path.exists(os.path.join(root, file)):
+                        continue
+                    full_path = os.path.join(root, file)
+                    arcname = os.path.relpath(full_path, home_dir)
+
+                    if os.path.getsize(full_path) < 25 * 1024 * 1024:
+                        zipf.write(full_path, arcname=arcname)
+                        
+        zip_size_mb = os.path.getsize(zip_name) / (1024 * 1024)
+        logger.info(f"Size of backup: {zip_size_mb:.2f} MB")
+        
         logger.info("backup sending")
         with open(zip_name, 'rb') as f:
-            bot.send_document(message.chat.id, f ,caption = "Backup")
+            bot.send_document(message.chat.id, f ,caption = "Backup", timeout=3000)
 
         win_path = os.getenv("BACKUP_WIN_PATH", os.path.expanduser("~/LinuxBackup"))
 
