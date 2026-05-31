@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+ bot-service:
+  build: .
+  image: tg-bot:latest
+  container_name: super-tg-bot
+  network_mode: host
+  restart: unless-stopped
+
+  env_file:
+   - .env
+
+  volumes:
+   - ${HOME}:/root

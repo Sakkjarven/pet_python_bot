@@ -4,6 +4,8 @@ import shutil
 import zipfile
 import logging
 import telebot
+import urllib.request
+import urllib.parse
 from telebot import apihelper
 from dotenv import load_dotenv
 
@@ -14,7 +16,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 load_dotenv()
 
-TOKEN = os.getenv("TELEGRAM_TOKEN")
+TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip().replace('"', '').replace("'", "")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 proxy_url = os.getenv("TELEGRAM_PROXY")
 
@@ -27,7 +29,7 @@ if not TOKEN or not CHAT_ID:
     
 bot = telebot.TeleBot(TOKEN)
 
-def check_visitor(func):
+def owner_only(func):
     def wrapper(message, *args, **kwargs):
         if str(message.chat.id) != CHAT_ID:
             logger.warning(f"Wrong CHAT_ID. ID: {message.chat.id}, User: @{message.from_user.username}")
@@ -42,52 +44,40 @@ def start(message):
     bot.send_message(message.chat.id, "Bot is ready")
     
 @bot.message_handler(commands=['scr'])
-@check_visitor
+@owner_only
 def take_screenshot(message):
     logger.info(f"Command /scr from {message.chat.id}")
-    bot.send_message(message.chat.id, "Taking screenshot")
-    win_temp_path = "C:\\Windows\\Temp\\screenshot.png"
-    wsl_img_path = "/mnt/c/Windows/Temp/screenshot.png"
-    ps = (
-            "[Reflection.Assembly]::LoadWithPartialName('System.Drawing') | Out-Null; "
-            "[Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; "
-            "$bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds; "
-            "$bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height; "
-            "$graphics = [System.Drawing.Graphics]::FromImage($bmp); "
-            "$graphics.CopyFromScreen($bounds.X, $bounds.Y, 0, 0, $bounds.Size); "
-            f"$bmp.Save('{win_temp_path}', [System.Drawing.Imaging.ImageFormat]::Png); "
-            "$graphics.Dispose(); $bmp.Dispose();"
-    )
+    bot.send_message(message.chat.id, "Requesting screenshot...")
+    
     try:
-        if os.path.exists(wsl_img_path):
-            os.remove(wsl_img_path)
-        subprocess.run(["powershell.exe", "-Command", ps], check=True)
-        if os.path.exists(wsl_img_path):
-            with open(wsl_img_path, 'rb') as img:
-                bot.send_photo(message.chat.id, img, caption="Your screen")
-            os.remove(wsl_img_path)
-            logger.info("Screen sended")
-        else:
-            raise FileNotFoundError("Win not create a screen")
+        response = urllib.request.urlopen("http://127.0.0.1:5000/scr", timeout=15)
+        img_data = response.read()
+        
+        bot.send_photo(message.chat.id, img_data, caption="Screen from PC")
+        logger.info("Screenshot made and send")
     except Exception as e:
-        logger.error(f"Error with screen-creating")
-        bot.send_message(message.chat.id, f"Cannot make a screen")
+        logger.error(f"Agents error to screen: {e}")
+        bot.send_message(message.chat.id, f"error to screen")
         
 @bot.message_handler(commands=['say'])
-@check_visitor
+@owner_only
 def speak(message):
     logger.info(f"Command /say from {message.chat.id}")
     text = message.text.replace('/say','').strip()
     if not text:
         bot.send_message(message.chat.id, "Empty after /say")
         return
-    ps1 = f"""Add-Type -AssemblyName System.Speech;
-            (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak('{text}')"""
-    subprocess.run(["powershell.exe","-Command", ps1])
-    bot.send_message(message.chat.id, f"Said that: {text}")
+    logger.info(f"Pull request to windows: {text}")
+    try:
+        encoded_text = urllib.parse.quote(text)
+        urllib.request.urlopen(f"http://127.0.0.1:5000/say?text={encoded_text}", timeout=10)
+        bot.send_message(message.chat.id, f"Said: {text}")
+    except Exception as e:
+        logger.error(f"Can't connect to Windows: {e}")
+        bot.send_message(message.chat.id, "Cannot connect to windows")
     
 @bot.message_handler(commands=['backup'])
-@check_visitor
+@owner_only
 def speak(message):
     logger.info(f"Command /backup from {message.chat.id}")
     bot.send_message(message.chat.id, "Start building")
